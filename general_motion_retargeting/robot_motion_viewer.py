@@ -1,5 +1,10 @@
 import os
 import time
+
+# Set headless rendering backend before importing mujoco if no display
+if os.environ.get("MUJOCO_GL") is None and os.environ.get("DISPLAY") is None:
+    os.environ["MUJOCO_GL"] = "egl"  # Use EGL for GPU, or "osmesa" for CPU-only
+
 import mujoco as mj
 import mujoco.viewer as mjv
 import imageio
@@ -54,6 +59,7 @@ class RobotMotionViewer:
                 video_width=640,
                 video_height=480,
                 keyboard_callback=None,
+                headless=False,
                 ):
         
         self.robot_type = robot_type
@@ -68,17 +74,19 @@ class RobotMotionViewer:
         self.rate_limiter = RateLimiter(frequency=self.motion_fps, warn=False)
         self.camera_follow = camera_follow
         self.record_video = record_video
+        self.headless = headless
 
+        self.viewer = None
+        if not self.headless:
+            self.viewer = mjv.launch_passive(
+                model=self.model,
+                data=self.data,
+                show_left_ui=False,
+                show_right_ui=False, 
+                key_callback=keyboard_callback
+                )      
 
-        self.viewer = mjv.launch_passive(
-            model=self.model,
-            data=self.data,
-            show_left_ui=False,
-            show_right_ui=False, 
-            key_callback=keyboard_callback
-            )      
-
-        self.viewer.opt.flags[mj.mjtVisFlag.mjVIS_TRANSPARENT] = transparent_robot
+            self.viewer.opt.flags[mj.mjtVisFlag.mjVIS_TRANSPARENT] = transparent_robot
         
         if self.record_video:
             assert video_path is not None, "Please provide video path for recording"
@@ -92,6 +100,11 @@ class RobotMotionViewer:
             
             # Initialize renderer for video recording
             self.renderer = mj.Renderer(self.model, height=video_height, width=video_width)
+            # Set up camera for headless rendering
+            if self.headless:
+                self.headless_cam = mj.MjvCamera()
+                self.headless_cam.distance = self.viewer_cam_distance
+                self.headless_cam.elevation = -10
         
     def step(self, 
             # robot data
@@ -122,6 +135,20 @@ class RobotMotionViewer:
         self.data.qpos[7:] = dof_pos
         
         mj.mj_forward(self.model, self.data)
+        
+        if self.headless:
+            # Update headless camera to follow robot
+            if follow_camera:
+                self.headless_cam.lookat = self.data.xpos[self.model.body(self.robot_base).id]
+            
+            if self.record_video:
+                self.renderer.update_scene(self.data, camera=self.headless_cam)
+                img = self.renderer.render()
+                self.mp4_writer.append_data(img)
+            
+            if rate_limit is True:
+                self.rate_limiter.sleep()
+            return
         
         if follow_camera:
             self.viewer.cam.lookat = self.data.xpos[self.model.body(self.robot_base).id]
@@ -154,8 +181,9 @@ class RobotMotionViewer:
             self.mp4_writer.append_data(img)
     
     def close(self):
-        self.viewer.close()
-        time.sleep(0.5)
+        if self.viewer is not None:
+            self.viewer.close()
+            time.sleep(0.5)
         if self.record_video:
             self.mp4_writer.close()
             print(f"Video saved to {self.video_path}")
