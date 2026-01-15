@@ -67,6 +67,12 @@ if __name__ == "__main__":
         help="Run in headless mode (no display required, useful for servers).",
     )
 
+    parser.add_argument(
+        "--video_path",
+        default=None,
+        help="Path to save the video. If not provided, saves to videos/ folder.",
+    )
+
     args = parser.parse_args()
 
 
@@ -91,11 +97,17 @@ if __name__ == "__main__":
         tgt_robot=args.robot,
     )
     
+    # Determine video path
+    if args.video_path is not None:
+        video_path = args.video_path
+    else:
+        video_path = f"videos/{args.robot}_{args.gvhmr_pred_file.split('/')[-1].split('.')[0]}.mp4"
+    
     robot_motion_viewer = RobotMotionViewer(robot_type=args.robot,
                                             motion_fps=aligned_fps,
                                             transparent_robot=0,
                                             record_video=args.record_video,
-                                            video_path=f"videos/{args.robot}_{args.gvhmr_pred_file.split('/')[-1].split('.')[0]}.mp4",
+                                            video_path=video_path,
                                             headless=args.headless)
     
 
